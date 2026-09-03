@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "Library") (type "KiCad") (uri "${KIPRJMOD}/2d_models/Library.pretty") (options "") (descr ""))
+	(lib (name "Entropy32") (type "KiCad") (uri "${KIPRJMOD}/2d_models/Entropy32.pretty") (options "") (descr ""))
+)
