@@ -38,9 +38,14 @@
  *       a device you haven't independently audited end-to-end.
  *
  * Required libraries:
- *   - Adafruit_GFX     (Adafruit)
- *   - Adafruit_SSD1306  (Adafruit)
- *     Install both via Arduino IDE Library Manager.
+ *   - U8g2 (olikraus) - only the U8x8 text-mode API is used. U8x8 talks
+ *     directly to the display a character cell at a time with no RAM
+ *     framebuffer and a compact built-in font, unlike Adafruit_GFX +
+ *     Adafruit_SSD1306 (which pull in a full graphics stack - shape
+ *     drawing, a 512-byte framebuffer, and unrelated SPI-TFT code paths
+ *     the linker can't strip because of virtual dispatch). That combo
+ *     alone doesn't fit in the ATmega328P's 32KB flash next to the rest
+ *     of this sketch. Install "U8g2" via the Arduino IDE Library Manager.
  *
  * Required companion files (same sketch folder):
  *   - sha256.h / sha256.cpp   (included, self-contained, no dependency)
@@ -48,8 +53,7 @@
  */
 
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <U8x8lib.h>
 #include "sha256.h"
 #include "bip39_wordlist.h"
 #include "button.h"
@@ -60,15 +64,15 @@
 #define FWD_PIN    5
 
 // ---------------- OLED ----------------
-// 0.91" SSD1306 modules are almost always 128x32 pixels. Common I2C
+// 0.91" SSD1306 modules are almost always 128x32 pixels, giving a 16
+// column x 4 row text grid with U8x8's 8px-wide font tiles. Common I2C
 // addresses are 0x3C or 0x3D - run an I2C scanner sketch once if the
 // display doesn't init, and adjust OLED_ADDR below.
-#define OLED_WIDTH  128
-#define OLED_HEIGHT 32
-#define OLED_ADDR   0x3C
-#define OLED_RESET  -1   // no dedicated reset pin on these modules
+#define OLED_ADDR    0x3C
+#define OLED_COLS    16
+#define OLED_ROWS    4
 
-Adafruit_SSD1306 lcd(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
+U8X8_SSD1306_128X32_UNIVISION_HW_I2C lcd(U8X8_PIN_NONE);
 
 // ---------------- CPM tracking ----------------
 #define CPM_WINDOW_SECONDS 60
@@ -224,7 +228,38 @@ AppState state = STATE_COLLECTING;
 uint8_t  selectedLength  = 12;   // toggled between 12 / 24 in the menu
 uint8_t  wordCount       = 0;
 uint16_t wordIndices[24];
-uint8_t  currentWordPos  = 0;
+
+// Seed words are shown WORDS_PER_PAGE at a time (one page fills the whole
+// screen) instead of one word per screen, so a 24-word seed takes 6
+// button presses to read instead of 24.
+#define WORDS_PER_PAGE 4
+uint8_t currentPage = 0;
+
+uint8_t totalPages() {
+  return (wordCount + WORDS_PER_PAGE - 1) / WORDS_PER_PAGE;
+}
+
+// Looks up word `index` (0-2047) from the packed BIP39_WORDLIST_BLOB and
+// copies it (plain ASCII, null-terminated) into `out`. The blob has no
+// index -> offset table (that alone would cost 4KB of flash we don't
+// have), so this walks null-terminated words from the start of the blob.
+// Called at most WORDS_PER_PAGE times per screen draw and 24 times per
+// generated phrase, so the O(index) scan cost is negligible.
+void getWordAtIndex(uint16_t index, char* out, uint8_t outSize) {
+  const char* p = BIP39_WORDLIST_BLOB;
+  while (index > 0) {
+    while (pgm_read_byte(p) != 0) p++;
+    p++;
+    index--;
+  }
+  uint8_t i = 0;
+  uint8_t c;
+  while ((c = pgm_read_byte(p)) != 0 && i < outSize - 1) {
+    out[i++] = c;
+    p++;
+  }
+  out[i] = '\0';
+}
 
 // ---------------- SHA-256 boot self-test ----------------
 // Known-answer test vector: SHA-256("abc")
@@ -243,12 +278,9 @@ const uint8_t KAT_EXPECTED[32] PROGMEM = {
 // with a FAIL screen. On success, briefly shows PASS + a short hash
 // fingerprint before continuing into normal operation.
 void runSHA256SelfTest() {
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("SHA-256 self-");
-  lcd.setCursor(0, 16);
-  lcd.print("test running...");
-  lcd.display();
+  lcd.clear();
+  lcd.drawString(0, 0, "SHA-256 self-");
+  lcd.drawString(0, 2, "test running...");
 
   uint8_t katInputRam[3];
   memcpy_P(katInputRam, KAT_INPUT, sizeof(katInputRam));
@@ -267,30 +299,29 @@ void runSHA256SelfTest() {
     }
   }
 
-  lcd.clearDisplay();
+  lcd.clear();
   if (pass) {
-    lcd.setCursor(0, 0);
-    lcd.print("SHA-256 test:");
-    lcd.setCursor(0, 16);
-    lcd.print("PASS  ");
+    lcd.drawString(0, 0, "SHA-256 test:");
     // Show first 4 hex bytes of the digest as a quick visual
     // fingerprint the user can cross-check against the published
     // vector (ba7816bf...) if they want extra confidence.
+    char line[15];
+    strcpy(line, "PASS  ");
     for (uint8_t i = 0; i < 4; i++) {
       char hex[3];
-      sprintf(hex, "%02x", digest[i]);
-      lcd.print(hex);
+      const char* hexDigits = "0123456789abcdef";
+      hex[0] = hexDigits[(digest[i] >> 4) & 0x0F];
+      hex[1] = hexDigits[digest[i] & 0x0F];
+      hex[2] = '\0';
+      strcat(line, hex);
     }
-    lcd.display();
+    lcd.drawString(0, 2, line);
     delay(1800);
   } else {
     // Do not proceed. A broken conditioning step must never silently
     // feed into seed generation.
-    lcd.setCursor(0, 0);
-    lcd.print("SHA-256 test:");
-    lcd.setCursor(0, 16);
-    lcd.print("FAIL - HALTED");
-    lcd.display();
+    lcd.drawString(0, 0, "SHA-256 test:");
+    lcd.drawString(0, 2, "FAIL - HALTED");
     while (true) {
       // halt indefinitely; user must power-cycle after investigating
       delay(1000);
@@ -298,22 +329,20 @@ void runSHA256SelfTest() {
   }
 }
 
-// Verifies every word in BIP39_WORDLIST fits in wordBuf (see drawWordScreen()).
-// Halts on boot if a regenerated/modified wordlist ever contains an
-// oversized entry, rather than silently overflowing the stack later.
+// Verifies every word in BIP39_WORDLIST_BLOB fits in wordBuf (see
+// drawWordScreen()). Halts on boot if a regenerated/modified wordlist
+// ever contains an oversized entry, rather than silently overflowing
+// the stack later.
 void runWordlistLengthCheck() {
-  const uint8_t MAX_WORD_LEN = 9; // must match wordBuf[10] - 1, in drawWordScreen()
-  for (uint16_t i = 0; i < 2048; i++) {
-    char wordBuf[MAX_WORD_LEN + 2]; // +1 slack so an overlong word still shows as overlong, not corrupts this buffer
-    strncpy_P(wordBuf, (PGM_P)pgm_read_word(&(BIP39_WORDLIST[i])), sizeof(wordBuf) - 1);
-    wordBuf[sizeof(wordBuf) - 1] = '\0';
-    if (strlen(wordBuf) > MAX_WORD_LEN) {
-      lcd.clearDisplay();
-      lcd.setCursor(0, 0);
-      lcd.print("Wordlist error:");
-      lcd.setCursor(0, 16);
-      lcd.print("word too long");
-      lcd.display();
+  const char* p = BIP39_WORDLIST_BLOB;
+  for (uint16_t i = 0; i < BIP39_WORD_COUNT; i++) {
+    uint8_t len = 0;
+    uint8_t c;
+    while ((c = pgm_read_byte(p++)) != 0) len++;
+    if (len > BIP39_MAX_WORD_LEN) {
+      lcd.clear();
+      lcd.drawString(0, 0, "Wordlist error:");
+      lcd.drawString(0, 2, "word too long");
       while (true) { delay(1000); } // halt - do not proceed to entropy collection
     }
   }
@@ -327,33 +356,32 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(GEIGER_PIN), geigerISR, RISING);
 
-  if (!lcd.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    // Can't proceed without a working display - a seed device that
-    // silently can't show its output is worse than one that halts.
+  // Confirm the display actually acks on the bus before handing off to
+  // U8x8 (whose begin() has no failure path of its own) - a seed device
+  // that silently can't show its output is worse than one that halts.
+  Wire.begin();
+  Wire.beginTransmission(OLED_ADDR);
+  if (Wire.endTransmission() != 0) {
     while (true) { delay(1000); }
   }
-  lcd.setTextSize(1);
-  lcd.setTextColor(SSD1306_WHITE);
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Entropy32");
-  lcd.setCursor(0, 16);
-  lcd.print("Booting...");
-  lcd.display();
+
+  lcd.setI2CAddress(OLED_ADDR << 1);
+  lcd.begin();
+  lcd.setFont(u8x8_font_5x7_r);
+  lcd.clear();
+  lcd.drawString(0, 0, "Entropy32");
+  lcd.drawString(0, 2, "Booting...");
   delay(600);
 
   runSHA256SelfTest(); // halts here if the SHA-256 implementation is broken
   runWordlistLengthCheck(); // halts here if bip39_wordlist.h has an oversized entry
 
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Entropy32");
-  lcd.setCursor(0, 16);
-  lcd.print("Collecting...");
-  lcd.display();
+  lcd.clear();
+  lcd.drawString(0, 0, "Entropy32");
+  lcd.drawString(0, 2, "Collecting...");
 
-  cpmLastTickMs = millis();         
-  cpmLastPulseSnapshot = totalPulseCount;  
+  cpmLastTickMs = millis();
+  cpmLastPulseSnapshot = totalPulseCount;
 }
 
 // ---------------- Main loop ----------------
@@ -382,7 +410,7 @@ void loop() {
       } else if (action == MENU_SELECT) {
         generatePhrase();
         state = STATE_SHOW_WORD;
-        currentWordPos = 0;
+        currentPage = 0;
         drawWordScreen();
       }
 
@@ -391,8 +419,8 @@ void loop() {
 
     case STATE_SHOW_WORD:
       if (buttonPressed(fwdBtn)) {
-        if (currentWordPos < wordCount - 1) {
-          currentWordPos++;
+        if (currentPage < totalPages() - 1) {
+          currentPage++;
           drawWordScreen();
         } else {
           state = STATE_DONE;
@@ -400,8 +428,8 @@ void loop() {
         }
       }
       if (buttonPressed(backBtn)) {
-        if (currentWordPos > 0) {
-          currentWordPos--;
+        if (currentPage > 0) {
+          currentPage--;
           drawWordScreen();
         }
       }
@@ -412,7 +440,7 @@ void loop() {
 
       if (action == MENU_BACK) {
         state = STATE_SHOW_WORD;
-        currentWordPos = wordCount - 1;
+        currentPage = totalPages() - 1;
         drawWordScreen();
 
       } else if (action == MENU_SELECT) {
@@ -429,12 +457,9 @@ void loop() {
       if (action == MENU_SELECT) {
         wipeSeed();
         state = STATE_COLLECTING;
-        lcd.clearDisplay();
-        lcd.setCursor(0, 0);
-        lcd.print("Entropy32");
-        lcd.setCursor(0, 16);
-        lcd.print("Collecting...");
-        lcd.display();
+        lcd.clear();
+        lcd.drawString(0, 0, "Entropy32");
+        lcd.drawString(0, 2, "Collecting...");
 
       } else if (action == MENU_BACK || action == MENU_FWD) {
         // Any single-button press cancels back to the done screen
@@ -529,61 +554,51 @@ void updateCollectingScreen() {
     char cpmStr[6];
     formatCPM(getCurrentCPM(), cpmStr);
 
-    char lineBuf[17];
+    char lineBuf[OLED_COLS + 1];
     snprintf(lineBuf, sizeof(lineBuf), "LB: %c CPM: %-5.5s", lastBitChar, cpmStr);
-    lcd.clearDisplay();
-    lcd.setCursor(0, 0);
-    lcd.print(lineBuf);
+    lcd.drawString(0, 0, lineBuf);
 
-    lcd.setCursor(0, 16);
-    lcd.print("Bits: ");
-    lcd.print(poolBitIndex);
-    lcd.print("/");
-    lcd.print(RAW_POOL_BITS);
-    lcd.print("   ");
-    lcd.display();
+    snprintf(lineBuf, sizeof(lineBuf), "Bits: %u/%u   ", poolBitIndex, RAW_POOL_BITS);
+    lcd.drawString(0, 2, lineBuf);
   }
 }
 
 void drawMenuScreen() {
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Seed length:");
-  lcd.setCursor(0, 16);
-  lcd.print(selectedLength);
-  lcd.display();
+  lcd.clear();
+  lcd.drawString(0, 0, "Seed length:");
+  char lineBuf[OLED_COLS + 1];
+  snprintf(lineBuf, sizeof(lineBuf), "%u", selectedLength);
+  lcd.drawString(0, 2, lineBuf);
 }
 
+// Shows up to WORDS_PER_PAGE words per screen, each prefixed with its
+// 1-based position in the phrase (e.g. "01 abandon") so the current
+// page/position is always legible without a separate header line.
 void drawWordScreen() {
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Word ");
-  lcd.print(currentWordPos + 1);
-  lcd.print("/");
-  lcd.print(wordCount);
-  lcd.setCursor(0, 16);
-  char wordBuf[10];
-  strcpy_P(wordBuf, (PGM_P)pgm_read_word(&(BIP39_WORDLIST[wordIndices[currentWordPos]])));
-  lcd.print(wordBuf);
-  lcd.display();
+  lcd.clear();
+  char wordBuf[BIP39_MAX_WORD_LEN + 1];
+  char lineBuf[OLED_COLS + 1];
+
+  for (uint8_t row = 0; row < WORDS_PER_PAGE; row++) {
+    uint8_t pos = currentPage * WORDS_PER_PAGE + row;
+    if (pos >= wordCount) break;
+
+    getWordAtIndex(wordIndices[pos], wordBuf, sizeof(wordBuf));
+    snprintf(lineBuf, sizeof(lineBuf), "%2u %s", pos + 1, wordBuf);
+    lcd.drawString(0, row, lineBuf);
+  }
 }
 
 void drawDoneScreen() {
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Seed complete.");
-  lcd.setCursor(0, 16);
-  lcd.print("BACK+FWD=wipe");
-  lcd.display();
+  lcd.clear();
+  lcd.drawString(0, 0, "Seed complete.");
+  lcd.drawString(0, 2, "BACK+FWD=wipe");
 }
 
 void drawWipeConfirmScreen() {
-  lcd.clearDisplay();
-  lcd.setCursor(0, 0);
-  lcd.print("Wipe seed now?");
-  lcd.setCursor(0, 16);
-  lcd.print("BACK+FWD=confirm");
-  lcd.display();
+  lcd.clear();
+  lcd.drawString(0, 0, "Wipe seed now?");
+  lcd.drawString(0, 2, "BACK+FWD=confirm");
 }
 
 // ---------------- Entropy conditioning + BIP39 generation ----------------
@@ -648,7 +663,7 @@ void generatePhrase() {
 void wipeSeed() {
   memset((void*)wordIndices, 0, sizeof(wordIndices));
   wordCount      = 0;
-  currentWordPos = 0;
+  currentPage    = 0;
   poolBitIndex   = 0;
 
   cpmLastTickMs = millis();
