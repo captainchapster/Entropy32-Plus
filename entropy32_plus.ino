@@ -535,6 +535,38 @@ void formatCPM(uint32_t cpm, char* out) {
   }
 }
 
+// Renders an ASCII progress bar exactly OLED_COLS wide, e.g.
+// "[#######-------]", by filling PROGRESS_BAR_WIDTH segments in
+// proportion to current/maxVal. `out` must be at least OLED_COLS+1 bytes.
+#define PROGRESS_BAR_WIDTH (OLED_COLS - 2) // 2 cols spent on the brackets
+void buildProgressBar(uint16_t current, uint16_t maxVal, char* out) {
+  uint8_t filled = (uint8_t)(((uint32_t)current * PROGRESS_BAR_WIDTH) / maxVal);
+  if (filled > PROGRESS_BAR_WIDTH) filled = PROGRESS_BAR_WIDTH;
+
+  out[0] = '[';
+  uint8_t i;
+  for (i = 0; i < filled; i++) out[1 + i] = '#';
+  for (; i < PROGRESS_BAR_WIDTH; i++) out[1 + i] = '-';
+  out[1 + PROGRESS_BAR_WIDTH] = ']';
+  out[2 + PROGRESS_BAR_WIDTH] = '\0';
+}
+
+// Formats a duration for the "time left" estimate. Caps at "99h+" rather
+// than letting an absurdly weak/absent source (near-zero CPM) overflow
+// the field with a multi-day estimate.
+void formatDuration(uint32_t totalSeconds, char* out, size_t outSize) {
+  if (totalSeconds >= 359999UL) { // >= 99h59m59s
+    snprintf(out, outSize, "99h+");
+    return;
+  }
+  uint32_t h = totalSeconds / 3600;
+  uint32_t m = (totalSeconds % 3600) / 60;
+  uint32_t s = totalSeconds % 60;
+  if (h > 0)      snprintf(out, outSize, "%luh%02lum", h, m);
+  else if (m > 0) snprintf(out, outSize, "%lum%02lus", m, s);
+  else            snprintf(out, outSize, "%lus", s);
+}
+
 void updateCollectingScreen() {
   updateCPMWindow(); // ticks once per second, independent of the 250ms display throttle below
 
@@ -551,15 +583,35 @@ void updateCollectingScreen() {
       lastBitChar = ((byteSnapshot >> ((idx - 1) & 0x07)) & 1) ? '1' : '0';
     }
 
+    uint32_t cpm = getCurrentCPM();
     char cpmStr[6];
-    formatCPM(getCurrentCPM(), cpmStr);
+    formatCPM(cpm, cpmStr);
 
     char lineBuf[OLED_COLS + 1];
     snprintf(lineBuf, sizeof(lineBuf), "LB: %c CPM: %-5.5s", lastBitChar, cpmStr);
     lcd.drawString(0, 0, lineBuf);
 
-    snprintf(lineBuf, sizeof(lineBuf), "Bits: %u/%u   ", poolBitIndex, RAW_POOL_BITS);
+    buildProgressBar(idx, RAW_POOL_BITS, lineBuf);
+    lcd.drawString(0, 1, lineBuf);
+
+    snprintf(lineBuf, sizeof(lineBuf), "Bits: %u/%u   ", idx, RAW_POOL_BITS);
     lcd.drawString(0, 2, lineBuf);
+
+    // ETA assumes accepted-bit rate roughly tracks pulse rate (CPM), which
+    // holds since almost every valid pulse interval yields a bit - see
+    // geigerISR(). Shown as "--" until the CPM window has any data yet,
+    // or if CPM is genuinely zero (no pulses -> no progress possible).
+    char etaLine[OLED_COLS + 1];
+    if (cpm == 0) {
+      snprintf(etaLine, sizeof(etaLine), "Est: %-10s", "--");
+    } else {
+      uint16_t remainingBits = RAW_POOL_BITS - idx;
+      uint32_t etaSeconds = ((uint32_t)remainingBits * 60UL) / cpm;
+      char durBuf[12];
+      formatDuration(etaSeconds, durBuf, sizeof(durBuf));
+      snprintf(etaLine, sizeof(etaLine), "Est: %-10s", durBuf);
+    }
+    lcd.drawString(0, 3, etaLine);
   }
 }
 
