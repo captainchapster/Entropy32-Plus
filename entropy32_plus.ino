@@ -367,6 +367,7 @@ void setup() {
 
   lcd.setI2CAddress(OLED_ADDR << 1);
   lcd.begin();
+  lcd.setFlipMode(1); // display is mounted upside-down in the enclosure
   lcd.setFont(u8x8_font_5x7_r);
   lcd.clear();
   lcd.drawString(0, 0, "Entropy32");
