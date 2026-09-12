@@ -54,6 +54,7 @@
 
 #include <Wire.h>
 #include <U8x8lib.h>
+#include <ctype.h>
 #include "sha256.h"
 #include "bip39_wordlist.h"
 #include "button.h"
@@ -143,6 +144,21 @@ bool buttonPressed(Button &b) {
   return pressed;
 }
 
+// Blocks until both nav buttons are physically released (plus one
+// debounce interval to let contact bounce settle) before the caller
+// switches into STATE_SHOW_WORD. That state's page navigation is
+// driven by buttonPressed()/fwdBtn/backBtn, which is separate debounce
+// state from the raw digitalRead() combo-detection in readMenuAction().
+// Without this wait, a button still held down at the exact moment of
+// the state switch (very common right after a BACK+FWD combo press, or
+// a held BACK press) looks to buttonPressed() like a brand-new press,
+// silently skipping page 0 of the seed words.
+void waitForNavButtonsReleased() {
+  while (digitalRead(BACK_PIN) == LOW || digitalRead(FWD_PIN) == LOW) {
+    delay(5);
+  }
+  delay(DEBOUNCE_MS);
+}
 
 // ---------------- Menu buttons ----------------
 //
@@ -409,6 +425,7 @@ void loop() {
         drawMenuScreen();
 
       } else if (action == MENU_SELECT) {
+        waitForNavButtonsReleased();
         generatePhrase();
         state = STATE_SHOW_WORD;
         currentPage = 0;
@@ -440,6 +457,7 @@ void loop() {
       MenuAction action = readMenuAction();
 
       if (action == MENU_BACK) {
+        waitForNavButtonsReleased();
         state = STATE_SHOW_WORD;
         currentPage = totalPages() - 1;
         drawWordScreen();
@@ -625,8 +643,12 @@ void drawMenuScreen() {
 }
 
 // Shows up to WORDS_PER_PAGE words per screen, each prefixed with its
-// 1-based position in the phrase (e.g. "01 abandon") so the current
+// 1-based position in the phrase (e.g. "01 ABANDON") so the current
 // page/position is always legible without a separate header line.
+// Words are uppercased for display only (the wordlist itself, and any
+// index lookups against it, stay lowercase/canonical BIP39) since the
+// 0.91" panel's small font makes lowercase ascenders/descenders easy to
+// misread when transcribing a seed phrase by hand.
 void drawWordScreen() {
   lcd.clear();
   char wordBuf[BIP39_MAX_WORD_LEN + 1];
@@ -637,6 +659,9 @@ void drawWordScreen() {
     if (pos >= wordCount) break;
 
     getWordAtIndex(wordIndices[pos], wordBuf, sizeof(wordBuf));
+    for (uint8_t i = 0; wordBuf[i] != '\0'; i++) {
+      wordBuf[i] = toupper((unsigned char)wordBuf[i]);
+    }
     snprintf(lineBuf, sizeof(lineBuf), "%2u %s", pos + 1, wordBuf);
     lcd.drawString(0, row, lineBuf);
   }
