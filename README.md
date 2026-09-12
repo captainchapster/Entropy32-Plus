@@ -52,6 +52,9 @@ I have included a custom designed basic case which you can 3d print to protect y
 | `button.h` | Button input handling |
 | `english.txt` | Source BIP39 wordlist |
 | `generate_wordlist.py` | Script to regenerate `bip39_wordlist.h` from `english.txt` |
+| `KiCad/...` | Schematics, PCB and other files |
+| `KiCad/production/...` | Fabrication data: bom, zipped fab files, and positions etc |
+| `enclosures/...` | 3D print files for cases & enclosures |
 
 ## Building it yourself
 
@@ -59,9 +62,11 @@ I have included a custom designed basic case which you can 3d print to protect y
 
 The Arduino sketch (`entropy32.ino`) and its accompanying `.h`/`.cpp` files must remain in the same top-level folder for the Arduino IDE to compile correctly — it doesn't recurse into subfolders for sketch code. Open `entropy32.ino` in the Arduino IDE, verify your board settings for the ATmega328P, and flash as normal.
 
+Use the KiCad files to tailor the board to your liking before fabrication or use the premade production files to order your board and/or pick and place from your preferred fabrication plant i.e. JLCPCB or PCB Way etc.
+
 ## Validation
 
-Entropy quality is being validated against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) methodology for entropy sources used in random bit generation.
+Entropy quality is yet to be validated against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) methodology for entropy sources used in random bit generation. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
 
 ## Disclaimer
 
