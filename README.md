@@ -36,6 +36,12 @@ Pseudo-random number generators are deterministic — given the same seed, they 
   <img src="images/GMC-320S_350.png" alt="GMC-320S Geiger counter" height="200">
 </p>
 
+## 3D printed case
+
+I have included a custom designed basic case which you can 3d print to protect your device. The design works by allowing the board to slide on tracks into the case, once inserted all the way, a small prong prevents the board from sliding back out. If you plan to use this case be sure to hold the board down while unplugging the USB and/or the 3.5mm audio cable as this would otherwise put excessive strain on the prong to the point it make break off and fail. 
+
+![Basic Case](images/basic-case.png)
+
 ## Repository contents
 
 | File | Purpose |
