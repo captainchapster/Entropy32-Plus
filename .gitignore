@@ -77,3 +77,6 @@ gerbers/
 *.zip
 _autosave-*
 *.lck
+
+# Manual additions
+__pycache__

@@ -58,6 +58,7 @@
 #include "sha256.h"
 #include "bip39_wordlist.h"
 #include "button.h"
+#include "logo_bitmap.h"
 
 // ---------------- Pin assignments ----------------
 #define GEIGER_PIN 2   // INT0 - processed pulse edge from LM393
@@ -294,9 +295,8 @@ const uint8_t KAT_EXPECTED[32] PROGMEM = {
 // with a FAIL screen. On success, briefly shows PASS + a short hash
 // fingerprint before continuing into normal operation.
 void runSHA256SelfTest() {
-  lcd.clear();
-  lcd.drawString(0, 0, "SHA-256 self-");
-  lcd.drawString(0, 2, "test running...");
+  drawStatusLine("Testing SHA-256");
+  delay(1000);
 
   uint8_t katInputRam[3];
   memcpy_P(katInputRam, KAT_INPUT, sizeof(katInputRam));
@@ -315,9 +315,7 @@ void runSHA256SelfTest() {
     }
   }
 
-  lcd.clear();
   if (pass) {
-    lcd.drawString(0, 0, "SHA-256 test:");
     // Show first 4 hex bytes of the digest as a quick visual
     // fingerprint the user can cross-check against the published
     // vector (ba7816bf...) if they want extra confidence.
@@ -331,13 +329,12 @@ void runSHA256SelfTest() {
       hex[2] = '\0';
       strcat(line, hex);
     }
-    lcd.drawString(0, 2, line);
+    drawStatusLine(line);
     delay(1800);
   } else {
     // Do not proceed. A broken conditioning step must never silently
     // feed into seed generation.
-    lcd.drawString(0, 0, "SHA-256 test:");
-    lcd.drawString(0, 2, "FAIL - HALTED");
+    drawStatusLine("FAIL - HALTED");
     while (true) {
       // halt indefinitely; user must power-cycle after investigating
       delay(1000);
@@ -350,18 +347,47 @@ void runSHA256SelfTest() {
 // ever contains an oversized entry, rather than silently overflowing
 // the stack later.
 void runWordlistLengthCheck() {
+  drawStatusLine("Check wordlist");
+  delay(1000);
   const char* p = BIP39_WORDLIST_BLOB;
   for (uint16_t i = 0; i < BIP39_WORD_COUNT; i++) {
     uint8_t len = 0;
     uint8_t c;
     while ((c = pgm_read_byte(p++)) != 0) len++;
     if (len > BIP39_MAX_WORD_LEN) {
-      lcd.clear();
-      lcd.drawString(0, 0, "Wordlist error:");
-      lcd.drawString(0, 2, "word too long");
+      drawStatusLine("Wordlist error!");
       while (true) { delay(1000); } // halt - do not proceed to entropy collection
     }
   }
+  drawStatusLine("PASS");
+  delay(1800);
+}
+
+// Blits LOGO_BITMAP (128x24, SSD1306 page-column format - the top 3 of
+// the display's 4 text rows) straight to the panel via drawTile(),
+// bypassing the font system entirely. drawTile() reads its source from
+// RAM (it just memcpy's into the I2C send buffer), so each 16-tile page
+// row is staged through rowBuf rather than handing it a PROGMEM pointer
+// directly, which on AVR would copy raw flash addresses instead of the
+// flash contents. Row 3 is left untouched for drawStatusLine().
+void drawLogoScreen() {
+  uint8_t rowBuf[16 * 8]; // one page row: 16 tiles wide x 8 bytes/tile
+  for (uint8_t page = 0; page < 3; page++) {
+    memcpy_P(rowBuf, &LOGO_BITMAP[page * sizeof(rowBuf)], sizeof(rowBuf));
+    lcd.drawTile(0, page, 16, rowBuf);
+  }
+}
+
+// Draws one line of boot status text in the row beneath the logo,
+// space-padded to the full column width so a shorter message can't
+// leave stale characters from a longer previous one.
+void drawStatusLine(const char* text) {
+  char line[OLED_COLS + 1];
+  uint8_t i = 0;
+  for (; i < OLED_COLS && text[i] != '\0'; i++) line[i] = text[i];
+  for (; i < OLED_COLS; i++) line[i] = ' ';
+  line[OLED_COLS] = '\0';
+  lcd.drawString(0, 3, line);
 }
 
 // ---------------- Setup ----------------
@@ -383,19 +409,22 @@ void setup() {
 
   lcd.setI2CAddress(OLED_ADDR << 1);
   lcd.begin();
+  // begin() powers the panel on with whatever was left in GDDRAM, and the
+  // draw below is a second full-frame write on top of that - back to
+  // back, that's the double flash on boot. Hold the panel off until the
+  // first real frame is drawn, then power on once.
+  lcd.setPowerSave(1);
   lcd.setFlipMode(1); // display is mounted upside-down in the enclosure
   lcd.setFont(u8x8_font_5x7_r);
-  lcd.clear();
-  lcd.drawString(0, 0, "Entropy32");
-  lcd.drawString(0, 2, "Booting...");
+  drawLogoScreen();
+  drawStatusLine("Booting...");
+  lcd.setPowerSave(0);
   delay(600);
 
   runSHA256SelfTest(); // halts here if the SHA-256 implementation is broken
   runWordlistLengthCheck(); // halts here if bip39_wordlist.h has an oversized entry
 
   lcd.clear();
-  lcd.drawString(0, 0, "Entropy32");
-  lcd.drawString(0, 2, "Collecting...");
 
   cpmLastTickMs = millis();
   cpmLastPulseSnapshot = totalPulseCount;

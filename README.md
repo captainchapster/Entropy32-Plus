@@ -64,6 +64,30 @@ The Arduino sketch (`entropy32.ino`) and its accompanying `.h`/`.cpp` files must
 
 Use the KiCad files to tailor the board to your liking before fabrication or use the premade production files to order your board and/or pick and place from your preferred fabrication plant i.e. JLCPCB or PCB Way etc.
 
+## Flash footprint
+
+Geiger pulse capture, SHA-256 conditioning, the full BIP39 wordlist, the OLED driver, and the entire menu/boot UI all fit on the ATmega328P's 32KB of flash — with 714 bytes to spare:
+
+```
+Sketch uses 30006 bytes (97%) of program storage space. Maximum is 30720 bytes.
+Global variables use 1037 bytes (50%) of dynamic memory, leaving 1011 bytes for local variables. Maximum is 2048 bytes.
+```
+
+Breakdown of where it all goes, pulled from the compiled `.elf` with `avr-size`/`avr-nm`:
+
+| Symbol | Bytes | What it is |
+|---|---|---|
+| `BIP39_WORDLIST_BLOB` | 13,117 | The official 2048-word BIP39 English wordlist |
+| `main` (loop + inlined UI code) | 3,062 | State machine, screen drawing, menu logic |
+| `SHA256::transform` | 2,278 | The SHA-256 compression function |
+| `vfprintf` | 948 | Pulled in by `snprintf`, used for CPM/ETA/progress formatting |
+| `u8x8_font_5x7_r` | 764 | Built-in OLED font glyph table |
+| U8x8 / TwoWire internals | ~1,100 | I2C + SSD1306 driver plumbing |
+| `LOGO_BITMAP` | 384 | Boot splash bitmap |
+| `K` (SHA-256 round constants) | 256 | Fixed SHA-256 round constants |
+
+The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit alongside it — see the note in `entropy32.ino` — which is why the firmware talks to the display through U8x8's text-only mode instead.
+
 ## Validation
 
 Entropy quality is yet to be validated against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) methodology for entropy sources used in random bit generation. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
