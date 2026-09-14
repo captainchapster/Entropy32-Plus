@@ -14,7 +14,7 @@ Pseudo-random number generators are deterministic — given the same seed, they 
 ![GMC-320S Geiger Pulse](images/raw0.png)
 2. An LM393 comparator IC then takes the 0-1.5V pulse and compares it to a bias of ~0.5V via a voltage divider such that if V>0.5V we get HIGH else LOW.
 ![GMC-320S Geiger Pulse](images/lm3930.png)
-3. The timing between events is captured and compared in non-overlapping pairs (each inter-arrival time feeds exactly one comparison, so adjacent output bits never share an input interval) before being fed through SHA-256 conditioning to whiten the raw entropy and remove any bias.
+3. The timing between events is captured and compared in non-overlapping pairs (each inter-arrival time feeds exactly one comparison, so adjacent output bits never share an input interval). Each resulting bit passes two continuous NIST SP 800-90B health tests (Repetition Count Test and Adaptive Proportion Test) before it's fed through SHA-256 conditioning to whiten the raw entropy and remove any bias — if either test trips, the device halts rather than generating a seed from a degraded source.
 4. The conditioned entropy is mapped to words from the standard BIP39 English wordlist.
 5. A simple button-driven, state-machine UI walks you through generating and displaying your seed phrase — entirely offline, with no wireless connectivity, no persistent storage of the seed, and no software dependencies beyond the device itself.
 
@@ -66,11 +66,11 @@ Use the KiCad files to tailor the board to your liking before fabrication or use
 
 ## Flash footprint
 
-Geiger pulse capture, SHA-256 conditioning, the full BIP39 wordlist, the OLED driver, and the entire menu/boot UI all fit on the ATmega328P's 32KB of flash — with 714 bytes to spare:
+Geiger pulse capture, the SP 800-90B runtime health tests, SHA-256 conditioning, the full BIP39 wordlist, the OLED driver, and the entire menu/boot UI all fit on the ATmega328P's 32KB of flash — with 486 bytes to spare:
 
 ```
-Sketch uses 30006 bytes (97%) of program storage space. Maximum is 30720 bytes.
-Global variables use 1037 bytes (50%) of dynamic memory, leaving 1011 bytes for local variables. Maximum is 2048 bytes.
+Sketch uses 30234 bytes (98%) of program storage space. Maximum is 30720 bytes.
+Global variables use 1061 bytes (51%) of dynamic memory, leaving 987 bytes for local variables. Maximum is 2048 bytes.
 ```
 
 Breakdown of where it all goes, pulled from the compiled `.elf` with `avr-size`/`avr-nm`:
@@ -90,7 +90,7 @@ The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit
 
 ## Validation
 
-Entropy quality is yet to be validated against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) methodology for entropy sources used in random bit generation. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
+The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. That is not the same as full validation: entropy quality is yet to be assessed against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) non-IID min-entropy estimators, which requires a long logged run of raw inter-arrival times. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
 
 ## Acknowledgements
 

@@ -25,10 +25,14 @@
  *      underlying intervals are IID (credit: Cosmographer / BHRIGU,
  *      https://www.bhrigu.io, for identifying this). Non-overlapping
  *      pairing costs half the raw bit rate but removes that artifact.
- *   3. Collect a raw pool of comparison-bits (RAW_POOL_BITS).
- *   4. Whiten/condition the raw pool with SHA-256 to remove any
+ *   3. Run each comparison-bit through two continuous online health
+ *      tests (NIST SP 800-90B 4.4.1/4.4.2 minimal tests, see
+ *      runHealthChecks()) before it's added to the pool, and halt
+ *      rather than generate a seed if either one trips.
+ *   4. Collect a raw pool of comparison-bits (RAW_POOL_BITS).
+ *   5. Whiten/condition the raw pool with SHA-256 to remove any
  *      residual structure (dead-time correlation, count-rate drift, etc).
- *   5. Follow the standard BIP39 process on the conditioned entropy:
+ *   6. Follow the standard BIP39 process on the conditioned entropy:
  *      compute checksum = first ENT/32 bits of SHA256(entropy),
  *      append it, split into 11-bit chunks, map each chunk to a
  *      word in the official 2048-word list.
@@ -111,6 +115,65 @@ volatile unsigned long lastPulseMicros = 0;
 volatile unsigned long firstInterval = 0;
 volatile bool haveFirstInterval = false;
 
+// ---------------- Entropy health tests ----------------
+// The two continuous minimal health tests from NIST SP 800-90B 4.4.1
+// (Repetition Count Test) and 4.4.2 (Adaptive Proportion Test), run on
+// every raw comparison bit before it reaches entropyPool. They exist to
+// catch a stuck/degraded noise source (dead sensor, jammed comparator,
+// stuck-high/low input) at runtime, not to certify entropy quality - that
+// still requires the offline SP 800-90B estimation described under
+// Validation in the README.
+//
+// Cutoffs assume a conservative claimed per-bit min-entropy H = 1 (i.e.
+// "does this still look like a fair coin flip") and a false-positive
+// probability alpha = 2^-20, the NIST-recommended default:
+//   RCT cutoff  C = ceil(1 + (-log2(alpha) / H)) = ceil(1 + 20/1) = 21
+//   APT cutoff, window W = 512: using the normal approximation to the
+//   binomial tail (mean = W/2 = 256, sigma = sqrt(W/4) = 11.31, z for
+//   alpha = 2^-20 is ~6.36) gives cutoff ~= 256 + 6.36*11.31 = 328. This
+//   is a coarse stand-in for the exact tail sum in the spec - cheap
+//   enough for the AVR and conservative enough to still catch a
+//   genuinely stuck source.
+#define RCT_CUTOFF   21
+#define APT_WINDOW   512
+#define APT_CUTOFF   328
+
+volatile uint8_t  lastBitValue     = 0;
+volatile uint8_t  rctRunLength     = 0;
+volatile uint8_t  aptReferenceBit  = 0;
+volatile uint16_t aptMatchCount    = 0;
+volatile uint16_t aptWindowCount   = 0;
+volatile bool     healthTestFailed = false;
+
+// Updates both health tests with one raw comparison bit. Called from
+// geigerISR() for every bit, independent of whether entropyPool is full,
+// so the source is monitored continuously rather than only while
+// collecting. Sets healthTestFailed and never clears it - loop() halts
+// the device on the next check, matching the existing boot-time KAT /
+// wordlist halt behavior; a power cycle is required to resume.
+void runHealthChecks(uint8_t bit) {
+  // Repetition Count Test: too many identical bits in a row.
+  if (bit == lastBitValue) {
+    rctRunLength++;
+    if (rctRunLength >= RCT_CUTOFF) healthTestFailed = true;
+  } else {
+    rctRunLength = 1;
+    lastBitValue = bit;
+  }
+
+  // Adaptive Proportion Test: one value recurring too often within a
+  // window of APT_WINDOW consecutive bits.
+  if (aptWindowCount == 0) {
+    aptReferenceBit = bit;
+    aptMatchCount = 1;
+  } else if (bit == aptReferenceBit) {
+    aptMatchCount++;
+    if (aptMatchCount >= APT_CUTOFF) healthTestFailed = true;
+  }
+  aptWindowCount++;
+  if (aptWindowCount >= APT_WINDOW) aptWindowCount = 0; // start next window
+}
+
 void geigerISR() {
   totalPulseCount++;
   unsigned long now = micros();
@@ -121,13 +184,16 @@ void geigerISR() {
         firstInterval = interval;
         haveFirstInterval = true;
       } else {
-        if (interval != firstInterval && poolBitIndex < RAW_POOL_BITS) {
+        if (interval != firstInterval) {
           uint8_t bit = (interval > firstInterval) ? 1 : 0;
-          uint16_t byteIdx   = poolBitIndex >> 3;
-          uint8_t  bitOffset = poolBitIndex & 0x07;
-          if (bit) entropyPool[byteIdx] |=  (1 << bitOffset);
-          else     entropyPool[byteIdx] &= ~(1 << bitOffset);
-          poolBitIndex++;
+          runHealthChecks(bit);
+          if (poolBitIndex < RAW_POOL_BITS) {
+            uint16_t byteIdx   = poolBitIndex >> 3;
+            uint8_t  bitOffset = poolBitIndex & 0x07;
+            if (bit) entropyPool[byteIdx] |=  (1 << bitOffset);
+            else     entropyPool[byteIdx] &= ~(1 << bitOffset);
+            poolBitIndex++;
+          }
         }
         // Whether or not a bit was emitted, both intervals of this pair
         // are now spent - start the next pair fresh rather than sliding
@@ -456,6 +522,13 @@ void loop() {
 
     case STATE_COLLECTING:
       updateCollectingScreen();
+      // Checked here rather than inside the ISR (which only sets the
+      // flag) so a failing source halts before its output ever reaches
+      // generatePhrase() - see runHealthChecks().
+      if (healthTestFailed) {
+        drawStatusLine("Health test FAIL");
+        while (true) { delay(1000); } // halt - power cycle to retry
+      }
       if (poolBitIndex >= RAW_POOL_BITS) {
         state = STATE_MENU_LENGTH;
         drawMenuScreen();
