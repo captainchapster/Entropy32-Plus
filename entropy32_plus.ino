@@ -12,10 +12,19 @@
  *
  * Entropy method:
  *   1. Capture inter-arrival time between successive Geiger pulses.
- *   2. Compare each interval to the previous one:
- *        longer  -> bit 1
- *        shorter -> bit 0
- *        equal   -> discarded (extremely rare at microsecond resolution)
+ *   2. Compare intervals in non-overlapping pairs (T1,T2) -> bit,
+ *      (T3,T4) -> bit, (T5,T6) -> bit, etc:
+ *        second longer  -> bit 1
+ *        second shorter -> bit 0
+ *        equal          -> pair discarded (extremely rare at microsecond
+ *                           resolution)
+ *      Each interval feeds exactly one comparison. An earlier revision
+ *      compared every interval to the one before it (T2 vs T1, then T3
+ *      vs T2, ...), which reuses each interval in two consecutive
+ *      comparisons and correlates adjacent output bits even when the
+ *      underlying intervals are IID (credit: Cosmographer / BHRIGU,
+ *      https://www.bhrigu.io, for identifying this). Non-overlapping
+ *      pairing costs half the raw bit rate but removes that artifact.
  *   3. Collect a raw pool of comparison-bits (RAW_POOL_BITS).
  *   4. Whiten/condition the raw pool with SHA-256 to remove any
  *      residual structure (dead-time correlation, count-rate drift, etc).
@@ -94,8 +103,13 @@ uint8_t  cpmSecondsElapsed   = 0;  // caps at CPM_WINDOW_SECONDS; used to scale 
 volatile uint8_t  entropyPool[RAW_POOL_BITS / 8]; // bit-packed raw pool
 volatile uint16_t poolBitIndex   = 0;
 volatile unsigned long lastPulseMicros = 0;
-volatile unsigned long prevInterval    = 0;
-volatile bool intervalValid = false;
+// Non-overlapping pairing state: each interval feeds exactly one
+// comparison, so the first interval of a pair is held here until the
+// second arrives, then both are discarded (tie or not) before the next
+// pair starts. This is what keeps adjacent output bits from sharing an
+// input interval - see the "Entropy method" note at the top of this file.
+volatile unsigned long firstInterval = 0;
+volatile bool haveFirstInterval = false;
 
 void geigerISR() {
   totalPulseCount++;
@@ -103,18 +117,24 @@ void geigerISR() {
   if (lastPulseMicros != 0) {
     unsigned long interval = now - lastPulseMicros;
     if (interval >= MIN_INTERVAL_US) {
-      if (intervalValid && poolBitIndex < RAW_POOL_BITS) {
-        if (interval != prevInterval) {
-          uint8_t bit = (interval > prevInterval) ? 1 : 0;
+      if (!haveFirstInterval) {
+        firstInterval = interval;
+        haveFirstInterval = true;
+      } else {
+        if (interval != firstInterval && poolBitIndex < RAW_POOL_BITS) {
+          uint8_t bit = (interval > firstInterval) ? 1 : 0;
           uint16_t byteIdx   = poolBitIndex >> 3;
           uint8_t  bitOffset = poolBitIndex & 0x07;
           if (bit) entropyPool[byteIdx] |=  (1 << bitOffset);
           else     entropyPool[byteIdx] &= ~(1 << bitOffset);
           poolBitIndex++;
         }
+        // Whether or not a bit was emitted, both intervals of this pair
+        // are now spent - start the next pair fresh rather than sliding
+        // forward by one interval (that sliding is the overlap this
+        // scheme exists to avoid).
+        haveFirstInterval = false;
       }
-      prevInterval = interval;
-      intervalValid = true;
       lastPulseMicros = now;
     }
   } else {
@@ -645,16 +665,18 @@ void updateCollectingScreen() {
     snprintf(lineBuf, sizeof(lineBuf), "Bits: %u/%u   ", idx, RAW_POOL_BITS);
     lcd.drawString(0, 2, lineBuf);
 
-    // ETA assumes accepted-bit rate roughly tracks pulse rate (CPM), which
-    // holds since almost every valid pulse interval yields a bit - see
-    // geigerISR(). Shown as "--" until the CPM window has any data yet,
-    // or if CPM is genuinely zero (no pulses -> no progress possible).
+    // ETA assumes accepted-bit rate roughly tracks half the pulse rate
+    // (CPM), since geigerISR() now spends two intervals (~two pulses) per
+    // output bit under non-overlapping pairing - see the "Entropy method"
+    // note at the top of this file. Shown as "--" until the CPM window
+    // has any data yet, or if CPM is genuinely zero (no pulses -> no
+    // progress possible).
     char etaLine[OLED_COLS + 1];
     if (cpm == 0) {
       snprintf(etaLine, sizeof(etaLine), "Est: %-10s", "--");
     } else {
       uint16_t remainingBits = RAW_POOL_BITS - idx;
-      uint32_t etaSeconds = ((uint32_t)remainingBits * 60UL) / cpm;
+      uint32_t etaSeconds = ((uint32_t)remainingBits * 2UL * 60UL) / cpm;
       char durBuf[12];
       formatDuration(etaSeconds, durBuf, sizeof(durBuf));
       snprintf(etaLine, sizeof(etaLine), "Est: %-10s", durBuf);
