@@ -381,7 +381,7 @@ const uint8_t KAT_EXPECTED[32] PROGMEM = {
 // with a FAIL screen. On success, briefly shows PASS + a short hash
 // fingerprint before continuing into normal operation.
 void runSHA256SelfTest() {
-  drawStatusLine("Testing SHA-256");
+  drawStatusLine("TESTING SHA-256");
   delay(1000);
 
   uint8_t katInputRam[3];
@@ -409,7 +409,7 @@ void runSHA256SelfTest() {
     strcpy(line, "PASS  ");
     for (uint8_t i = 0; i < 4; i++) {
       char hex[3];
-      const char* hexDigits = "0123456789abcdef";
+      const char* hexDigits = "0123456789ABCDEF";
       hex[0] = hexDigits[(digest[i] >> 4) & 0x0F];
       hex[1] = hexDigits[digest[i] & 0x0F];
       hex[2] = '\0';
@@ -433,7 +433,7 @@ void runSHA256SelfTest() {
 // ever contains an oversized entry, rather than silently overflowing
 // the stack later.
 void runWordlistLengthCheck() {
-  drawStatusLine("Check wordlist");
+  drawStatusLine("CHECK WORDLIST");
   delay(1000);
   const char* p = BIP39_WORDLIST_BLOB;
   for (uint16_t i = 0; i < BIP39_WORD_COUNT; i++) {
@@ -441,7 +441,7 @@ void runWordlistLengthCheck() {
     uint8_t c;
     while ((c = pgm_read_byte(p++)) != 0) len++;
     if (len > BIP39_MAX_WORD_LEN) {
-      drawStatusLine("Wordlist error!");
+      drawStatusLine("WORDLIST ERROR!");
       while (true) { delay(1000); } // halt - do not proceed to entropy collection
     }
   }
@@ -503,7 +503,7 @@ void setup() {
   lcd.setFlipMode(1); // display is mounted upside-down in the enclosure
   lcd.setFont(u8x8_font_5x7_r);
   drawLogoScreen();
-  drawStatusLine("Booting...");
+  drawStatusLine("BOOTING...");
   lcd.setPowerSave(0);
   delay(600);
 
@@ -526,7 +526,7 @@ void loop() {
       // flag) so a failing source halts before its output ever reaches
       // generatePhrase() - see runHealthChecks().
       if (healthTestFailed) {
-        drawStatusLine("Health test FAIL");
+        drawStatusLine("HEALTH TEST FAIL");
         while (true) { delay(1000); } // halt - power cycle to retry
       }
       if (poolBitIndex >= RAW_POOL_BITS) {
@@ -599,8 +599,8 @@ void loop() {
         wipeSeed();
         state = STATE_COLLECTING;
         lcd.clear();
-        lcd.drawString(0, 0, "Entropy32");
-        lcd.drawString(0, 2, "Collecting...");
+        lcd.drawString(0, 0, "ENTROPY32");
+        lcd.drawString(0, 2, "COLLECTING...");
 
       } else if (action == MENU_BACK || action == MENU_FWD) {
         // Any single-button press cancels back to the done screen
@@ -692,20 +692,20 @@ void buildProgressBar(uint16_t current, uint16_t maxVal, char* out) {
   out[2 + PROGRESS_BAR_WIDTH] = '\0';
 }
 
-// Formats a duration for the "time left" estimate. Caps at "99h+" rather
+// Formats a duration for the "time left" estimate. Caps at "99H+" rather
 // than letting an absurdly weak/absent source (near-zero CPM) overflow
 // the field with a multi-day estimate.
 void formatDuration(uint32_t totalSeconds, char* out, size_t outSize) {
   if (totalSeconds >= 359999UL) { // >= 99h59m59s
-    snprintf(out, outSize, "99h+");
+    snprintf(out, outSize, "99H+");
     return;
   }
   uint32_t h = totalSeconds / 3600;
   uint32_t m = (totalSeconds % 3600) / 60;
   uint32_t s = totalSeconds % 60;
-  if (h > 0)      snprintf(out, outSize, "%luh%02lum", h, m);
-  else if (m > 0) snprintf(out, outSize, "%lum%02lus", m, s);
-  else            snprintf(out, outSize, "%lus", s);
+  if (h > 0)      snprintf(out, outSize, "%luH%02luM", h, m);
+  else if (m > 0) snprintf(out, outSize, "%luM%02luS", m, s);
+  else            snprintf(out, outSize, "%luS", s);
 }
 
 void updateCollectingScreen() {
@@ -735,7 +735,7 @@ void updateCollectingScreen() {
     buildProgressBar(idx, RAW_POOL_BITS, lineBuf);
     lcd.drawString(0, 1, lineBuf);
 
-    snprintf(lineBuf, sizeof(lineBuf), "Bits: %u/%u   ", idx, RAW_POOL_BITS);
+    snprintf(lineBuf, sizeof(lineBuf), "BITS: %u/%u   ", idx, RAW_POOL_BITS);
     lcd.drawString(0, 2, lineBuf);
 
     // ETA assumes accepted-bit rate roughly tracks half the pulse rate
@@ -746,13 +746,13 @@ void updateCollectingScreen() {
     // progress possible).
     char etaLine[OLED_COLS + 1];
     if (cpm == 0) {
-      snprintf(etaLine, sizeof(etaLine), "Est: %-10s", "--");
+      snprintf(etaLine, sizeof(etaLine), "EST: %-10s", "--");
     } else {
       uint16_t remainingBits = RAW_POOL_BITS - idx;
       uint32_t etaSeconds = ((uint32_t)remainingBits * 2UL * 60UL) / cpm;
       char durBuf[12];
       formatDuration(etaSeconds, durBuf, sizeof(durBuf));
-      snprintf(etaLine, sizeof(etaLine), "Est: %-10s", durBuf);
+      snprintf(etaLine, sizeof(etaLine), "EST: %-10s", durBuf);
     }
     lcd.drawString(0, 3, etaLine);
   }
@@ -760,7 +760,7 @@ void updateCollectingScreen() {
 
 void drawMenuScreen() {
   lcd.clear();
-  lcd.drawString(0, 0, "Seed length:");
+  lcd.drawString(0, 0, "SEED LENGTH:");
   char lineBuf[OLED_COLS + 1];
   snprintf(lineBuf, sizeof(lineBuf), "%u", selectedLength);
   lcd.drawString(0, 2, lineBuf);
@@ -793,14 +793,14 @@ void drawWordScreen() {
 
 void drawDoneScreen() {
   lcd.clear();
-  lcd.drawString(0, 0, "Seed complete.");
-  lcd.drawString(0, 2, "BACK+FWD=wipe");
+  lcd.drawString(0, 0, "SEED COMPLETE.");
+  lcd.drawString(0, 2, "BACK+FWD=WIPE");
 }
 
 void drawWipeConfirmScreen() {
   lcd.clear();
-  lcd.drawString(0, 0, "Wipe seed now?");
-  lcd.drawString(0, 2, "BACK+FWD=confirm");
+  lcd.drawString(0, 0, "WIPE SEED NOW?");
+  lcd.drawString(0, 2, "BACK+FWD=CONFIRM");
 }
 
 // ---------------- Entropy conditioning + BIP39 generation ----------------
