@@ -18,6 +18,25 @@ Pseudo-random number generators are deterministic — given the same seed, they 
 4. The conditioned entropy is mapped to words from the standard BIP39 English wordlist.
 5. A simple button-driven, state-machine UI walks you through generating and displaying your seed phrase — entirely offline, with no wireless connectivity, no persistent storage of the seed, and no software dependencies beyond the device itself.
 
+## How long does it take to generate a seed?
+
+The firmware always fills a 512-bit raw pool before conditioning — that's true whether you pick a 12-word or 24-word phrase, since the seed length only changes how many of the whitened bits get used afterward, not how much raw entropy gets collected. Because of the non-overlapping interval pairing described above, each output bit costs two Geiger pulses, so at a steady count rate the pool fills in roughly:
+
+```
+minutes ≈ 1024 / CPM
+```
+
+The device's collection screen shows live CPM and a running ETA using this same math, so you don't need to do it by hand. Actual CPM depends heavily on your specific tube, source activity, distance, and shielding — treat the table below as a rough guide, not a spec, and follow appropriate safety/legal practices for any check source you use:
+
+| Source | Typical CPM | Time to fill the pool |
+|---|---|---|
+| Ambient background | ~15–25 CPM | ~40–70 min |
+| Uranium glass ("vaseline glass") | ~50–100 CPM | ~10–20 min |
+| Thoriated tungsten welding rod (2% ThO₂) | ~100–200 CPM | ~5–10 min |
+| Am-241 foil (smoke detector ionization chamber) | ~300–800 CPM | ~1.3–3.5 min |
+| Low-activity calibration/check source | ~1,000–3,000 CPM | ~20 sec–1 min |
+| High-activity check source (close contact) | ~5,000–10,000+ CPM | ~6–12 sec |
+
 ## Hardware
 
 - Custom PCB built around an [ATmega328P microcontroller](https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf), designed in [KiCad](https://www.kicad.org/)
@@ -46,12 +65,14 @@ I have included a custom designed basic case which you can 3d print to protect y
 
 | File | Purpose |
 |---|---|
-| `entropy32.ino` | Main firmware — state machine, entropy capture, and UI logic |
+| `entropy32_plus.ino` | Main firmware — state machine, entropy capture, and UI logic |
 | `sha256.h` / `sha256.cpp` | SHA-256 implementation used to condition raw entropy |
 | `bip39_wordlist.h` | BIP39 English wordlist, compiled into firmware |
 | `button.h` | Button input handling |
-| `english.txt` | Source BIP39 wordlist |
-| `generate_wordlist.py` | Script to regenerate `bip39_wordlist.h` from `english.txt` |
+| `logo_bitmap.h` | Boot splash bitmap, compiled into firmware |
+| `tools/english.txt` | Source BIP39 wordlist |
+| `tools/generate_wordlist.py` | Script to regenerate `bip39_wordlist.h` from `english.txt` |
+| `tools/generate_logo_bitmap.py` | Script to regenerate `logo_bitmap.h` from a rendered image |
 | `KiCad/...` | Schematics, PCB and other files |
 | `KiCad/production/...` | Fabrication data: bom, zipped fab files, and positions etc |
 | `enclosures/...` | 3D print files for cases & enclosures |
@@ -60,7 +81,7 @@ I have included a custom designed basic case which you can 3d print to protect y
 
 ![Entropy32 schematic](images/schematic.svg)
 
-The Arduino sketch (`entropy32.ino`) and its accompanying `.h`/`.cpp` files must remain in the same top-level folder for the Arduino IDE to compile correctly — it doesn't recurse into subfolders for sketch code. Open `entropy32.ino` in the Arduino IDE, verify your board settings for the ATmega328P, and flash as normal.
+The Arduino sketch (`entropy32_plus.ino`) and its accompanying `.h`/`.cpp` files must remain in the same top-level folder for the Arduino IDE to compile correctly — it doesn't recurse into subfolders for sketch code. Open `entropy32_plus.ino` in the Arduino IDE, verify your board settings for the ATmega328P, and flash as normal.
 
 Use the KiCad files to tailor the board to your liking before fabrication or use the premade production files to order your board and/or pick and place from your preferred fabrication plant i.e. JLCPCB or PCB Way etc.
 
@@ -86,11 +107,11 @@ Breakdown of where it all goes, pulled from the compiled `.elf` with `avr-size`/
 | `LOGO_BITMAP` | 384 | Boot splash bitmap |
 | `K` (SHA-256 round constants) | 256 | Fixed SHA-256 round constants |
 
-The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit alongside it — see the note in `entropy32.ino` — which is why the firmware talks to the display through U8x8's text-only mode instead.
+The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit alongside it — see the note in `entropy32_plus.ino` — which is why the firmware talks to the display through U8x8's text-only mode instead.
 
 ## Validation
 
-The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. That is not the same as full validation: entropy quality is yet to be assessed against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) non-IID min-entropy estimators, which requires a long logged run of raw inter-arrival times. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
+The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32_plus.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. That is not the same as full validation: entropy quality is yet to be assessed against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) non-IID min-entropy estimators, which requires a long logged run of raw inter-arrival times. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
 
 ## Acknowledgements
 
