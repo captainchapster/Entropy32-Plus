@@ -3547,6 +3547,51 @@
 			(embedded_fonts no)
 		)
 	)
+	(text "Entropy32 Plus, the universe bifurcator - by Alexander Higgins"
+		(exclude_from_sim no)
+		(at 188.722 189.992 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "335f2352-0ade-4228-a98d-6fdefde2e684")
+	)
+	(text "1"
+		(exclude_from_sim no)
+		(at 270.51 193.548 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7885400e-adca-42b0-96c7-ebf77af7a06e")
+	)
+	(text "Entropy32 Plus"
+		(exclude_from_sim no)
+		(at 179.324 174.244 0)
+		(effects
+			(font
+				(size 6.35 6.35)
+				(thickness 1.27)
+				(bold yes)
+				(italic yes)
+			)
+			(justify left)
+		)
+		(uuid "8a4261a2-842e-458c-8e99-a19a1f364615")
+	)
+	(text "16/09/2026"
+		(exclude_from_sim no)
+		(at 214.122 193.548 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ab692715-b42a-46ab-ae79-ac1a68e1a089")
+	)
 	(junction
 		(at 88.9 144.78)
 		(diameter 0)
