@@ -102,6 +102,7 @@ that is entirely your responsibility.
 <p align="center">
   <img src="images/close-up.jpg" alt="Front panel" height="480">
   <img src="images/geiger.jpg" alt="Back panel" height="480">
+  <br>
   <i>The CPM figure on the Geiger counter should agree with Entropy32 Plus</i>
 </p>
 
@@ -149,6 +150,7 @@ runs a short sequence of self-tests before it will collect any entropy:
   <img src="images/Pass-1.jpg" alt="Back panel" height="480">
   <img src="images/wordlist.jpg" alt="Front panel" height="480">
   <img src="images/Pass-2.jpg" alt="Back panel" height="480">
+  <br>
   <i>Boot sequence showing health checks passing</i>
 </p>
 
@@ -189,9 +191,9 @@ field re-estimates the remaining time as data comes in.
 <p align="center">
   <img src="images/12-word.jpg" alt="Front panel" height="480">
   <img src="images/24-word.jpg" alt="Back panel" height="480">
+  <br>
   <i>Seed phrase selection menu, user can elect a 12 or 24 word phrase</i>
 </p>
-![Basic Case]()
 
 Once the pool fills, the device automatically shows a menu:
 
