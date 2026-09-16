@@ -85,6 +85,14 @@ The Arduino sketch (`entropy32_plus.ino`) and its accompanying `.h`/`.cpp` files
 
 Use the KiCad files to tailor the board to your liking before fabrication or use the premade production files to order your board and/or pick and place from your preferred fabrication plant i.e. JLCPCB or PCB Way etc.
 
+### Programming a bare ATmega328P
+
+A freshly fabricated board has a blank ATmega328P — there's no bootloader on it and no USB-to-serial chip to flash it through, so the usual "select a port and hit upload" Arduino flow doesn't apply until it's been programmed once via the ICSP header exposed on the board.
+
+1. **Wire up an ISP programmer.** Either a second Arduino running the `ArduinoISP` example sketch, or a dedicated programmer such as a USBasp, connected to the ICSP header. If using a USBasp, make sure it's set to 5V logic to match this board.
+2. **Burn the bootloader.** In the Arduino IDE, select **Arduino Uno** or **Arduino Nano** as the board type (either is a stand-in for a bare ATmega328P at this stage), select your ISP programmer under Tools → Programmer, and run **Tools → Burn Bootloader**. This also sets the fuses for running off the board's 16MHz external crystal rather than the internal oscillator.
+3. **Flash the firmware.** With the bootloader in place and the board running at 16MHz external clock, open `entropy32_plus.ino` and upload it via **Sketch → Upload Using Programmer** (still through the same ISP connection — the board has no onboard USB-serial chip for a normal serial upload).
+
 ## Flash footprint
 
 Geiger pulse capture, the SP 800-90B runtime health tests, SHA-256 conditioning, the full BIP39 wordlist, the OLED driver, and the entire menu/boot UI all fit on the ATmega328P's 32KB of flash — with 486 bytes to spare:
