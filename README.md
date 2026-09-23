@@ -119,11 +119,36 @@ The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit
 
 ## Validation
 
-The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32_plus.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. That is not the same as full validation: entropy quality is yet to be assessed against the [NIST SP 800-90B](https://csrc.nist.gov/publications/detail/sp/800-90b/final) non-IID min-entropy estimators, which requires a long logged run of raw inter-arrival times. Please verify the entropy source you intend to use otherwise understand that you will be using the device at your own risk.
+The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32_plus.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. Runtime health tests are not the same as validating the source's entropy.
 
-## Acknowledgements
+### Pilot entropy assessment
 
-- **Cosmographer / BHRIGU** — [bhrigu.io](https://www.bhrigu.io) — identified that the original entropy logic compared each inter-arrival time to the one before it (an overlapping comparison), which correlates adjacent output bits even when the underlying intervals are IID. The firmware now uses non-overlapping interval pairs instead. Thank you for the detailed writeup.
+A 10-hour capture was logged with [Entropy32 Recorder](https://github.com/captainchapster/Entropy32-Recorder). The recorder is a separate board that timestamps the same post-LM393 D2 rising edges the firmware reads. It captured 10,000 edges (~17 CPM average) with zero buffer overruns or transport drops. The intervals were put through the firmware's exact bit derivation from this repository at `311c859`: 200 µs minimum interval, non-overlapping pairs and ties discarded. That produced 4,999 comparison bits (2,543 zeros, 2,456 ones). Those bits were assessed with NIST's [`ea_non_iid`](https://github.com/usnistgov/SP800-90B_EntropyAssessment) (v1.1.8):
+
+| Estimator | Min-entropy (bits per bit) |
+|---|---|
+| Most Common Value | 0.924 |
+| Collision | **0.738** |
+| Markov | 0.956 |
+| t-Tuple | 0.876 |
+| LRS | 0.888 |
+| MultiMCW prediction | 0.970 |
+| Lag prediction | 0.915 |
+| MultiMMC prediction | 0.919 |
+| LZ78Y prediction | 0.922 |
+| Compression | not run (too few samples) |
+
+The assessed min-entropy is the lowest of these: **H ≈ 0.738 bits per comparison bit**, set by the collision estimator. At that rate, the 512-bit raw pool holds about 378 bits of min-entropy before SHA-256 conditioning. That is above the 256 bits a 24-word phrase needs.
+
+Treat this as a pilot, not a validation:
+
+- **4,999 samples is far short of the 1,000,000 the NIST tool is designed for.** The estimators use 99% upper confidence bounds, and those bounds are wide at this size, so the results are pessimistic. For example, the observed 50.9% / 49.1% split is within about 1.2 standard deviations of a fair coin. A full-length capture is still needed.
+- It covers one device, one Geiger tube and one environment, and the source and setup details were not recorded. It says nothing about other builds.
+- It is an entropy assessment, not NIST certification or formal validation.
+
+The raw edges, derived bits, full tool output and SHA-256 checksums are all published in the [evidence directory](https://github.com/captainchapster/Entropy32-Recorder/tree/1d47487bc94c2b7c9baa2feec54d4443b60ba87c/entropy32_sp80090b_2026-09-22a), so the result can be reproduced end to end.
+
+Please verify the entropy source you intend to use; otherwise, understand that you are using the device at your own risk.
 
 ## Disclaimer
 

@@ -22,9 +22,8 @@
  *      compared every interval to the one before it (T2 vs T1, then T3
  *      vs T2, ...), which reuses each interval in two consecutive
  *      comparisons and correlates adjacent output bits even when the
- *      underlying intervals are IID (credit: Cosmographer / BHRIGU,
- *      https://www.bhrigu.io, for identifying this). Non-overlapping
- *      pairing costs half the raw bit rate but removes that artifact.
+ *      underlying intervals are IID. Non-overlapping pairing costs half
+ *      the raw bit rate but removes that artifact.
  *   3. Run each comparison-bit through two continuous online health
  *      tests (NIST SP 800-90B 4.4.1/4.4.2 minimal tests, see
  *      runHealthChecks()) before it's added to the pool, and halt
