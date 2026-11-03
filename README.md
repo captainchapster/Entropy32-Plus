@@ -121,32 +121,39 @@ The wordlist alone is 43% of the chip. Adafruit_GFX + Adafruit_SSD1306 don't fit
 
 The firmware runs the two minimal continuous health tests NIST SP 800-90B requires of a noise source at runtime — a Repetition Count Test and an Adaptive Proportion Test (see `runHealthChecks()` in `entropy32_plus.ino`) — which will halt the device rather than generate a seed if the raw source looks stuck or degraded. Runtime health tests are not the same as validating the source's entropy.
 
-### Pilot entropy assessment
+### Full-length entropy assessment (2,000,000 edges)
 
-A 10-hour capture was logged with [Entropy32 Recorder](https://github.com/captainchapster/Entropy32-Recorder). The recorder is a separate board that timestamps the same post-LM393 D2 rising edges the firmware reads. It captured 10,000 edges (~17 CPM average) with zero buffer overruns or transport drops. The intervals were put through the firmware's exact bit derivation from this repository at `311c859`: 200 µs minimum interval, non-overlapping pairs and ties discarded. That produced 4,999 comparison bits (2,543 zeros, 2,456 ones). Those bits were assessed with NIST's [`ea_non_iid`](https://github.com/usnistgov/SP800-90B_EntropyAssessment) (v1.1.8):
+A 23-day capture (2026-10-03 to 2026-10-26) was logged with [Entropy32 Recorder](https://github.com/captainchapster/Entropy32-Recorder). The recorder is a separate board that timestamps the same post-LM393 D2 rising edges the firmware reads. It captured 2,000,000 edges (~61 CPM average) with zero buffer overruns or transport drops. The source was a GMC-320S Geiger counter beside a glass jar of cut-up 2% thoriated tungsten welding electrodes, on top of background radiation.
+
+The intervals were put through the firmware's exact bit derivation from this repository at `2b9893a`: 200 µs minimum interval, non-overlapping pairs and ties discarded. No intervals fell under the 200 µs cutoff (the detector's dead time is ~750 µs) and there were no ties. That produced 999,999 comparison bits (500,205 zeros, 499,794 ones, within 0.4 standard deviations of a fair coin). Those bits were assessed with NIST's [`ea_non_iid`](https://github.com/usnistgov/SP800-90B_EntropyAssessment) (v1.1.8):
 
 | Estimator | Min-entropy (bits per bit) |
 |---|---|
-| Most Common Value | 0.924 |
-| Collision | **0.738** |
-| Markov | 0.956 |
-| t-Tuple | 0.876 |
-| LRS | 0.888 |
-| MultiMCW prediction | 0.970 |
-| Lag prediction | 0.915 |
-| MultiMMC prediction | 0.919 |
-| LZ78Y prediction | 0.922 |
-| Compression | not run (too few samples) |
+| Most Common Value | 0.996 |
+| Collision | 0.885 |
+| Markov | 0.996 |
+| Compression | **0.828** |
+| t-Tuple | 0.895 |
+| LRS | 0.984 |
+| MultiMCW prediction | 0.996 |
+| Lag prediction | 0.998 |
+| MultiMMC prediction | 0.983 |
+| LZ78Y prediction | 0.983 |
 
-The assessed min-entropy is the lowest of these: **H ≈ 0.738 bits per comparison bit**, set by the collision estimator. At that rate, the 512-bit raw pool holds about 378 bits of min-entropy before SHA-256 conditioning. That is above the 256 bits a 24-word phrase needs.
+The assessed min-entropy is the lowest of these: **H ≈ 0.828 bits per comparison bit**, set by the compression estimator. At that rate, the 512-bit raw pool holds about 424 bits of min-entropy before SHA-256 conditioning. That is well above the 256 bits a 24-word phrase needs.
 
-Treat this as a pilot, not a validation:
+What this does and doesn't show:
 
-- **4,999 samples is far short of the 1,000,000 the NIST tool is designed for.** The estimators use 99% upper confidence bounds, and those bounds are wide at this size, so the results are pessimistic. For example, the observed 50.9% / 49.1% split is within about 1.2 standard deviations of a fair coin. A full-length capture is still needed.
-- It covers one device, one Geiger tube and one environment, and the source and setup details were not recorded. It says nothing about other builds.
+- **The dataset is one bit short of the 1,000,000-sample size.** 2,000,000 edges give 1,999,999 intervals and so 999,999 non-overlapping pairs. `ea_non_iid` prints a warning about it, and the recorder's `verify_evidence.py` therefore labels the package a pilot. The missing sample makes no practical difference to the estimates, but the recorder now stops captures on the comparison-bit count so the next run will clear the threshold.
+- Only the sequential-dataset non-IID estimators were run. The SP 800-90B restart tests were not.
+- It covers one device, one Geiger tube, one source and one environment. The enriched source ran at ~61 CPM; a background-only setup is slower, and this run says nothing about other builds or sources.
 - It is an entropy assessment, not NIST certification or formal validation.
 
-The raw edges, derived bits, full tool output and SHA-256 checksums are all published in the [evidence directory](https://github.com/captainchapster/Entropy32-Recorder/tree/1d47487bc94c2b7c9baa2feec54d4443b60ba87c/entropy32_sp80090b_2026-09-22a), so the result can be reproduced end to end.
+The raw edges, derived bits, full tool output, manifest and SHA-256 checksums are all published in the [evidence directory](https://github.com/captainchapster/Entropy32-Recorder/tree/d126967329e564d2764d65eb4a7c00ae7588aace/entropy32_sp80090b_2026-10-03a). Running `python tools/verify_evidence.py entropy32_sp80090b_2026-10-03a` in that repository re-derives the bits from the raw edges and checks every count and hash.
+
+### Earlier pilot (10,000 edges)
+
+Before the full-length run, a 10-hour pilot captured 10,000 edges (~17 CPM) and was derived with this repository at `311c859`. That produced 4,999 comparison bits (2,543 zeros, 2,456 ones). `ea_non_iid` assessed them at **H ≈ 0.738 bits per comparison bit** (collision estimator; compression was not run at that size). That is lower than the full-length result because the estimators' 99% confidence bounds are wide with so few samples. The source and setup details for that run were not recorded. Its [evidence directory](https://github.com/captainchapster/Entropy32-Recorder/tree/1d47487bc94c2b7c9baa2feec54d4443b60ba87c/entropy32_sp80090b_2026-09-22a) is kept for reference.
 
 Please verify the entropy source you intend to use; otherwise, understand that you are using the device at your own risk.
 
